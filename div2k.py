@@ -1,6 +1,5 @@
 import os
 import tensorflow as tf
-
 from tensorflow.python.data.experimental import AUTOTUNE
 
 
@@ -55,14 +54,17 @@ class DIV2K:
     def __len__(self):
         return len(self.image_ids)
 
-    def dataset(self, batch_size=16, repeat_count=None, random_transform=True):
+    def dataset(self, batch_size=16, repeat_count=None, random_transform=True, crop_size=256):
         ds = tf.data.Dataset.zip((self.lr_dataset(), self.hr_dataset()))
+        ds = ds.repeat(repeat_count)
         if random_transform:
-            ds = ds.map(lambda lr, hr: random_crop(lr, hr, scale=self.scale), num_parallel_calls=AUTOTUNE)
+            ds = ds.map(lambda lr, hr: random_crop(lr, hr, scale=self.scale, hr_crop_size=crop_size), num_parallel_calls=AUTOTUNE)
             ds = ds.map(random_rotate, num_parallel_calls=AUTOTUNE)
             ds = ds.map(random_flip, num_parallel_calls=AUTOTUNE)
+        
+        ds = ds.map(resize_lr, num_parallel_calls=AUTOTUNE)
+        ds = ds.map(normalize, num_parallel_calls=AUTOTUNE)
         ds = ds.batch(batch_size)
-        ds = ds.repeat(repeat_count)
         ds = ds.prefetch(buffer_size=AUTOTUNE)
         return ds
 
@@ -70,10 +72,10 @@ class DIV2K:
         if not os.path.exists(self._hr_images_dir()):
             download_archive(self._hr_images_archive(), self.images_dir, extract=True)
 
-        ds = self._images_dataset(self._hr_image_files()).cache(self._hr_cache_file())
-
-        if not os.path.exists(self._hr_cache_index()):
-            self._populate_cache(ds, self._hr_cache_file())
+        ds = self._images_dataset(self._hr_image_files())#.cache(self._hr_cache_file())
+        print('Found dataset:', self._hr_images_dir())
+        # if not os.path.exists(self._hr_cache_index()):
+        #     self._populate_cache(ds, self._hr_cache_file())
 
         return ds
 
@@ -81,10 +83,10 @@ class DIV2K:
         if not os.path.exists(self._lr_images_dir()):
             download_archive(self._lr_images_archive(), self.images_dir, extract=True)
 
-        ds = self._images_dataset(self._lr_image_files()).cache(self._lr_cache_file())
-
-        if not os.path.exists(self._lr_cache_index()):
-            self._populate_cache(ds, self._lr_cache_file())
+        ds = self._images_dataset(self._lr_image_files())#.cache(self._lr_cache_file())
+        print('Found dataset:', self._lr_images_dir())
+        # if not os.path.exists(self._lr_cache_index()):
+        #     self._populate_cache(ds, self._lr_cache_file())
 
         return ds
 
@@ -136,13 +138,14 @@ class DIV2K:
     def _images_dataset(image_files):
         ds = tf.data.Dataset.from_tensor_slices(image_files)
         ds = ds.map(tf.io.read_file)
+        # ds = ds.map(lambda x: tf.cast(tf.image.decode_png(x, channels=3), tf.float32), num_parallel_calls=AUTOTUNE)
         ds = ds.map(lambda x: tf.image.decode_png(x, channels=3), num_parallel_calls=AUTOTUNE)
         return ds
 
     @staticmethod
     def _populate_cache(ds, cache_file):
         print(f'Caching decoded images in {cache_file} ...')
-        for _ in ds: pass
+        # for _ in ds: pass
         print(f'Cached decoded images in {cache_file}.')
 
 
@@ -150,16 +153,33 @@ class DIV2K:
 #  Transformations
 # -----------------------------------------------------------
 
+def normalize(lr_img, hr_img):
+    lr_img = tf.cast(lr_img, tf.float32)
+    hr_img = tf.cast(hr_img, tf.float32)
+    lr_img = (lr_img / 127.5) - 1
+    hr_img = (hr_img / 127.5) - 1
+    return lr_img, hr_img
 
-def random_crop(lr_img, hr_img, hr_crop_size=96, scale=2):
-    lr_crop_size = hr_crop_size // scale
+
+def resize_lr(lr_img, hr_img):
+    lr_shape = tf.shape(lr_img)
+    h = lr_shape[0]
+    w = lr_shape[1]
+    lr_img = tf.image.resize(lr_img, size=(h * 2, w * 2),
+                             method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+                             antialias=True)
+    return lr_img, hr_img
+
+
+def random_crop(lr_img, hr_img, hr_crop_size=29, scale=2):
+    lr_crop_size = hr_crop_size // 2
     lr_img_shape = tf.shape(lr_img)[:2]
 
     lr_w = tf.random.uniform(shape=(), maxval=lr_img_shape[1] - lr_crop_size + 1, dtype=tf.int32)
     lr_h = tf.random.uniform(shape=(), maxval=lr_img_shape[0] - lr_crop_size + 1, dtype=tf.int32)
 
-    hr_w = lr_w * scale
-    hr_h = lr_h * scale
+    hr_w = lr_w * 2
+    hr_h = lr_h * 2
 
     lr_img_cropped = lr_img[lr_h:lr_h + lr_crop_size, lr_w:lr_w + lr_crop_size]
     hr_img_cropped = hr_img[hr_h:hr_h + hr_crop_size, hr_w:hr_w + hr_crop_size]
