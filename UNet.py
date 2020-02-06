@@ -33,7 +33,6 @@ def UNet(input_shape, blocks):
         x = blocks[block_index].append_to_model(x)
         block_index = block_index + 1
 
-    x = Conv2D(3, 1, strides=1, padding='same', activation='tanh',
-               kernel_initializer='he_normal')(x)
+    x = Conv2D(3, 1, strides=1, padding='same', activation='sigmoid')(x)
 
     return Model(inputs=inputs, outputs=x)

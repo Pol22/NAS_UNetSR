@@ -25,6 +25,7 @@ class BaseBlock(object):
         self.recursive_num = recursive_num
         self.kernel_size = 3 # only 3x3 filters
 
+    # TODO equality only with one object
     def __eq__(self, other):
         if isinstance(other, BaseBlock):
             return self.convs_num == other.convs_num and \
@@ -40,6 +41,7 @@ class BaseBlock(object):
     def __repr__(self):
         return self.__str__()
     
+    # TODO save weights between models
     def append_to_model(self, inputs):
         # fix inputs channels
         x = Conv2D(self.filters_num, self.kernel_size, strides=1,
@@ -51,6 +53,7 @@ class BaseBlock(object):
             # Add recursive before conv
             if len(recursive) > 1:
                 recursive_copy = copy(recursive)
+                # TODO try to use 1x1 conv on recursive connections
                 add = Add()(recursive)
                 recursive = recursive_copy
                 # last replacement
@@ -62,6 +65,7 @@ class BaseBlock(object):
                            strides=1, padding='same',
                            kernel_initializer='he_normal',
                            activation='relu')(add)
+            # TODO try to use leaky relu
             conv2 = Conv2D(self.filters_num, self.kernel_size,
                            strides=1, padding='same',
                            kernel_initializer='he_normal',

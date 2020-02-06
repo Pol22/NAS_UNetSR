@@ -15,7 +15,7 @@ from time import time
 from blocks import generate_all_possible_blocks, random_select_blocks
 from blocks import str_to_block
 from UNet import UNet, how_many_blocks
-import evaluation
+from evaluation import Evaluator
 
 
 TRAIN_SCRIPT = 'train.py'
@@ -45,13 +45,13 @@ class Trainer(threading.Thread):
         args = ['python', TRAIN_SCRIPT, '--model', model_path, '--gpu',
                 str(self.gpu_index), '--output', model_path, '--log_file',
                 log_file]
-        # print(args)
+
         start = time()
-        process = subprocess.run(args, stdout=subprocess.PIPE)
-                                #  stderr=subprocess.PIPE)
+        process = subprocess.run(args, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
         end = time()
-        print('Elapsed time {:06.1f}s for training model:\n{}'
-              .format(end - start, model_path))
+        print(f'Elapsed time {(end - start)/60:04.2f}min ' + \
+              f'for training model:\n{model_path}')
 
 
 def model_path_to_blocks_list(model_path):
@@ -95,20 +95,7 @@ def train_children(childred, img_size, queue, train_folder):
 
     return trained_models
 
-
-def evaluate_models(models):
-    '''
-        Return list of pairs (psnr, model_path)
-    '''
-    results = list()
-
-    for model in models:
-        psnr = evaluation.model_eval(model)
-        results.append((psnr, model))
-
-    return results
-
-
+# TODO create shared blocks between models
 class MutationController(object):
     def __init__(self, blocks, blocks_length, mutation_prob, alpha, eps):
         self.blocks = blocks
@@ -180,10 +167,10 @@ class MutationController(object):
                 else:
                     self.block_credit[index, i] = psnr
 
-        with open(TRAINING_LOG_FILE, 'a') as log:
-            log.write('\nUpdated block credit!\n')
-            log.write(str(self.block_credit))
-            log.write('\n')
+        # with open(TRAINING_LOG_FILE, 'a') as log:
+        #     log.write('\nUpdated block credit!\n')
+        #     log.write(str(self.block_credit))
+        #     log.write('\n')
         
         print('\nBlock credits updated!\n')
 
@@ -195,6 +182,8 @@ def main():
     parser.add_argument('--unet_depth', type=int,
                         help='how many times used downsampling',
                         default=3)
+    parser.add_argument('--batch', type=int, help='batch size',
+                        default=64)
     parser.add_argument('--generations', type=int,
                         help='number of generations',
                         default=40)
@@ -220,8 +209,13 @@ def main():
     parser.add_argument('--train_tmp', type=str,
                         help='temporary folder for training',
                         default='./train_tmp')
+    parser.add_argument('--eval_data', type=str,
+                        help='evaluation dataset',
+                        default='./DIV2K/benchmark/B100')
     args = parser.parse_args()
 
+    # evaluator creation
+    evaluator = Evaluator(args.eval_data, args.batch, args.img_size)
     # initialization
     possible_blocks = generate_all_possible_blocks()
     # init population
@@ -269,7 +263,7 @@ def main():
         models = train_children(children, args.img_size, queue,
                                 args.train_tmp)
         # evaluate models
-        pairs = evaluate_models(models)
+        pairs = evaluator.evaluate(models)
         # update mutation
         mutation_controller.update(pairs)
         # update fitness and log to file
@@ -289,17 +283,17 @@ def main():
                 log.write('[{:06.4f}] {}\n'.format(psnr, model_path))
 
         # remove weak models from tmp folder
-        # if len(fitnesses) > args.population:
-        #     for _, model in fitnesses[args.population:]:
-        #         model_path = blocks_list_to_model_path(args.train_tmp, model)
-        #         if os.path.exists(model_path):
-        #             os.remove(model_path)
-        #         # remove training log
-        #         csv_path = model_path + '.csv'
-        #         if os.path.exists(csv_path):
-        #             os.remove(csv_path)
+        if len(fitnesses) > args.population:
+            for _, model in fitnesses[args.population:]:
+                model_path = blocks_list_to_model_path(args.train_tmp, model)
+                if os.path.exists(model_path):
+                    os.remove(model_path)
+                # remove training log
+                csv_path = model_path + '.csv'
+                if os.path.exists(csv_path):
+                    os.remove(csv_path)
 
-        #     fitnesses = fitnesses[:args.population]
+            fitnesses = fitnesses[:args.population]
 
 
 if __name__ == '__main__':

@@ -1,25 +1,31 @@
-import tensorflow as tf
+import os
+from tensorflow.keras.models import load_model
 from sr_data import SR_DATA
 from loss_metric import MSE, PSNR
 
 
-DATASET_NAME = 'B100'
-DATASET_PATH = './DIV2K/benchmark/' + DATASET_NAME
-BATCH = 32
-IMG_SIZE = 64
+# TODO create evaluation over all image
+class Evaluator(object):
+    def __init__(self, dataset_path, batch, img_size):
+        self.dataset = SR_DATA(
+            os.path.join(dataset_path, 'LR_bicubic', 'X2'),
+            os.path.join(dataset_path,'HR')).dataset(
+                batch_size=batch,
+                repeat_count=4,
+                random_transform=True,
+                crop_size=img_size)
 
+    def evaluate(self, models):
+        '''
+            Return list of pairs (psnr, model_path)
+        '''
+        results = list()
 
-# TODO create validation over all image (not crop)
-val_dataset = SR_DATA(DATASET_PATH + '/LR_bicubic/X2/',
-                      DATASET_PATH + '/HR/').dataset(
-    batch_size=BATCH,
-    repeat_count=2,
-    random_transform=True,
-    crop_size=IMG_SIZE)
+        for model_path in models:
+            model = load_model(model_path, compile=False)
+            model.compile(loss=MSE(), metrics=[PSNR()])
+            result = model.evaluate(self.dataset, verbose=0)
+            psnr = result[1] # (loss, PSNR) -> PSNR
+            results.append((psnr, model_path))
 
-
-def model_eval(model_path):
-    model = tf.keras.models.load_model(model_path)
-    model.compile(loss=MSE(), metrics=[PSNR()])
-    result = model.evaluate(val_dataset, verbose=0)
-    return result[1] # (loss, PSNR) -> PSNR
+        return results
