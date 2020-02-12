@@ -48,8 +48,10 @@ class SR_DATA:
 def normalize(lr_img, hr_img):
     lr_img = tf.cast(lr_img, tf.float32)
     hr_img = tf.cast(hr_img, tf.float32)
-    lr_img = (lr_img / 127.5) - 1
-    hr_img = (hr_img / 127.5) - 1
+    # lr_img = (lr_img / 127.5) - 1
+    # hr_img = (hr_img / 127.5) - 1
+    lr_img = lr_img / 255.0
+    hr_img = hr_img / 255.0
     return lr_img, hr_img
 
 
